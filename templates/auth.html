@@ -1,0 +1,59 @@
+{% extends 'base.html' %}{% block content %}
+<div class="auth">
+  <section class="panel">
+    {% set title_key = 'auth_create_title' if mode=='register' else 'auth_login_title' %}
+    <h1 data-i18n="{{ title_key }}">{{ t(title_key) }}</h1>
+    <p data-i18n="auth_subtitle">{{ t('auth_subtitle') }}</p>
+
+    <form method="post">
+      <input type="hidden" name="_csrf" value="{{csrf()}}">
+
+      {% if mode=='register' %}
+      <label>
+        <span data-i18n="label_fullname">{{ t('label_fullname') }}</span>
+        <input name="name" required minlength="2" data-i18n-placeholder="label_fullname" placeholder="{{ t('label_fullname') }}">
+      </label>
+      <label>
+        <span data-i18n="label_account_type">{{ t('label_account_type') }}</span>
+        <select name="role" required>
+          <option value="shopkeeper" data-i18n="role_shopkeeper">{{ t('role_shopkeeper') }}</option>
+          <option value="customer" data-i18n="role_customer">{{ t('role_customer') }}</option>
+        </select>
+      </label>
+      <label>
+        <span data-i18n="label_shopname">{{ t('label_shopname') }}</span>
+        <input name="shopname" data-i18n-placeholder="placeholder_shopname" placeholder="{{ t('placeholder_shopname') }}">
+      </label>
+      {% endif %}
+
+      <label>
+        <span data-i18n="label_phone">{{ t('label_phone') }}</span>
+        <input name="phone" placeholder="+250788123456" required pattern="\+2507[0-9]{8}">
+      </label>
+      <label>
+        <span data-i18n="label_password">{{ t('label_password') }}</span>
+        <input name="password" type="password" required minlength="10">
+      </label>
+
+      {% set btn_key = 'btn_register' if mode=='register' else 'btn_signin' %}
+      <button data-i18n="{{ btn_key }}">{{ t(btn_key) }}</button>
+    </form>
+
+    <p>
+      {% if mode=='register' %}
+        <span data-i18n="already_registered">{{ t('already_registered') }}</span>
+        <a href="/login" data-i18n="signin_link">{{ t('signin_link') }}</a>
+      {% else %}
+        <span data-i18n="new_here">{{ t('new_here') }}</span>
+        <a href="/register" data-i18n="create_account_link">{{ t('create_account_link') }}</a>
+      {% endif %}
+    </p>
+  </section>
+
+  <aside>
+    <h2 data-i18n="aside_title">{{ t('aside_title') }}</h2>
+    <p data-i18n="aside_body">{{ t('aside_body') }}</p>
+    <strong data-i18n="aside_focus">{{ t('aside_focus') }}</strong>
+  </aside>
+</div>
+{% endblock %}

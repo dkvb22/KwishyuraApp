@@ -1,0 +1,278 @@
+{% extends 'base.html' %}{% block content %}
+
+<div class="heading">
+  <div>
+    <p class="eyebrow" data-i18n="cu_eyebrow">{{ t('cu_eyebrow') }}</p>
+    <h1><span data-i18n="cu_greeting">{{ t('cu_greeting') }}</span>{{session.name}}</h1>
+    <p data-i18n="cu_subtitle">{{ t('cu_subtitle') }}</p>
+  </div>
+  <a class="button secondary" href="/settings" data-i18n="nav_settings">{{ t('nav_settings') }}</a>
+</div>
+
+{# ── Summary Cards ── #}
+<div class="metrics">
+  <div class="metric metric-accent">
+    <span data-i18n="metric_total_outstanding">{{ t('metric_total_outstanding') }}</span>
+    <strong>{{'{:,}'.format(total)}} RWF</strong>
+  </div>
+  <div class="metric">
+    <span data-i18n="metric_linked_shops">{{ t('metric_linked_shops') }}</span>
+    <strong>{{memberships|length}}</strong>
+  </div>
+  <div class="metric">
+    <span data-i18n="metric_recorded_txns">{{ t('metric_recorded_txns') }}</span>
+    <strong>{{entries|length}}</strong>
+  </div>
+</div>
+
+{# ── Outstanding alert ── #}
+{% if total > 0 %}
+<div class="alert" style="background:var(--warn-bg);color:var(--warn-color);display:flex;align-items:center;gap:12px;">
+  ⚠️ <span data-i18n="alert_outstanding" data-i18n-html data-i18n-params='{{ {"amount": '{:,}'.format(total)}|tojson }}'>{{ t_html('alert_outstanding', amount='{:,}'.format(total)) }}</span>
+</div>
+{% endif %}
+
+{# ── Connect + MoMo ── #}
+<div class="columns">
+  <section class="panel">
+    <h2 data-i18n="panel_connect_shop">{{ t('panel_connect_shop') }}</h2>
+    <p data-i18n="connect_hint">{{ t('connect_hint') }}</p>
+    <form method="post" action="/link">
+      <input type="hidden" name="_csrf" value="{{csrf()}}">
+      <label>
+        <span data-i18n="label_shop_code">{{ t('label_shop_code') }}</span>
+        <input name="code" required data-i18n-placeholder="placeholder_shop_code" placeholder="{{ t('placeholder_shop_code') }}">
+      </label>
+      <button data-i18n="btn_link_shop">{{ t('btn_link_shop') }}</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2 data-i18n="panel_momo">{{ t('panel_momo') }}</h2>
+    <p class="warning" data-i18n="warning_test">{{ t('warning_test') }}</p>
+    <form method="post" action="/pay">
+      <input type="hidden" name="_csrf" value="{{csrf()}}">
+      <label>
+        <span data-i18n="label_shop">{{ t('label_shop') }}</span>
+        <select name="shop" required>
+          {% for m in memberships %}
+          <option value="{{m.shop_id}}">{{m.shop}} — {{'{:,}'.format(balances[m.shop_id])}} RWF</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span data-i18n="label_amount">{{ t('label_amount') }}</span>
+        <input name="amount" type="number" min="1" required>
+      </label>
+      <button {% if not memberships %}disabled{% endif %} data-i18n="btn_pay">{{ t('btn_pay') }}</button>
+    </form>
+  </section>
+</div>
+
+{# ── Balances by shop ── #}
+<section class="panel">
+  <h2 data-i18n="panel_balances">{{ t('panel_balances') }}</h2>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-i18n="th_shop">{{ t('th_shop') }}</th>
+          <th data-i18n="th_outstanding">{{ t('th_outstanding') }}</th>
+          <th data-i18n="th_status">{{ t('th_status') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in memberships %}
+        {% set bal = balances[m.shop_id] %}
+        <tr>
+          <td><strong>{{m.shop}}</strong></td>
+          <td>
+            {% if bal > 0 %}
+            <strong class="text-danger">{{'{:,}'.format(bal)}} RWF</strong>
+            {% elif bal == 0 %}
+            <span class="tag badge-available">✅ {{ tx('balance_settled') }}</span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if bal > 0 %}
+            <span class="tag tag-sale">{{ tx('status_unpaid') }}</span>
+            {% else %}
+            <span class="tag tag-payment">{{ tx('status_paid') }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" data-i18n="no_shops_yet">{{ t('no_shops_yet') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{# ── Shop Products Catalogue ── #}
+{% if memberships %}
+<section class="panel" id="shop-products">
+  <div class="panel-header-row">
+    <h2>🛒 <span data-i18n="panel_shop_products">{{ t('panel_shop_products') }}</span></h2>
+  </div>
+
+  {% for m in memberships %}
+  {% set prods = shop_products.get(m.shop_id, []) %}
+  {% if prods %}
+  <div class="shop-catalogue">
+    <div class="shop-catalogue-header">
+      <h3>🏪 {{m.shop}}</h3>
+      <span class="badge-available" data-i18n="products_count" data-i18n-params='{{ {"n": prods|length}|tojson }}'>{{ t('products_count', n=prods|length) }}</span>
+    </div>
+
+    <div style="margin-bottom:10px;">
+      <input type="text" class="search-input product-search-cu"
+             data-shop="{{m.shop_id}}"
+             data-i18n-placeholder="placeholder_search_in_shop" data-i18n-params='{{ {"shop": m.shop}|tojson }}'
+             placeholder="{{ t('placeholder_search_in_shop', shop=m.shop) }}">
+    </div>
+
+    <div class="product-grid-sm" id="prod-grid-{{m.shop_id}}">
+      {% for p in prods %}
+      <div class="product-card-sm" data-name-cu="{{p.name|lower}}" data-shop-cu="{{m.shop_id}}">
+        <div class="product-icon-sm">
+          {% if p.category == 'Food & Groceries' %}🌾
+          {% elif p.category == 'Beverages' %}🥤
+          {% elif p.category == 'Household' %}🏠
+          {% elif p.category == 'Personal Care' %}🧴
+          {% elif p.category == 'Dairy' %}🥛
+          {% elif p.category == 'Grains & Cereals' %}🌽
+          {% elif p.category == 'Vegetables & Fruits' %}🥦
+          {% else %}📦{% endif %}
+        </div>
+        <div class="product-card-sm-info">
+          <strong>{{p.name}}</strong>
+          <span class="product-cat">{{ tv('cat', p.category) }}</span>
+          <span class="product-price">{{'{:,}'.format(p.price_per_unit)}} RWF / {{ tv('unit', p.unit) }}</span>
+        </div>
+        <span class="badge-available" style="font-size:10px;">✓ {{ tx('badge_available') }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% elif prods|length == 0 %}
+  <div class="shop-catalogue">
+    <h3>🏪 {{m.shop}}</h3>
+    <p class="text-muted" style="font-size:13px;" data-i18n="no_products_shop">{{ t('no_products_shop') }}</p>
+  </div>
+  {% endif %}
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ── Transaction History ── #}
+<section class="panel">
+  <h2 data-i18n="panel_history">{{ t('panel_history') }}</h2>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-i18n="th_ref">{{ t('th_ref') }}</th>
+          <th data-i18n="th_shop">{{ t('th_shop') }}</th>
+          <th data-i18n="th_type">{{ t('th_type') }}</th>
+          <th data-i18n="th_desc">{{ t('th_desc') }}</th>
+          <th data-i18n="th_amount">{{ t('th_amount') }}</th>
+          <th data-i18n="th_due">{{ t('th_due') }}</th>
+          <th data-i18n="th_dispute">{{ t('th_dispute') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in entries %}
+        <tr>
+          <td><code class="ref-code">{{e.ref}}</code></td>
+          <td>{{e.shop}}</td>
+          <td>
+            <span class="tag tag-{{e.kind}}">
+              {% if e.kind=='sale' %}📤
+              {% elif e.kind=='payment' %}✅
+              {% else %}↩️{% endif %}
+              {{ tv('kind', e.kind) }}
+            </span>
+          </td>
+          <td>{% if e.item in ('Cash repayment', 'SIMULATED MoMo payment') or e.item.startswith('Reversal of ') %}{{ item_text(e.item) }}{% else %}{{e.item[:60]}}{% if e.item|length > 60 %}…{% endif %}{% endif %}</td>
+          <td><strong>{{'{:,}'.format(e.amount)}} RWF</strong></td>
+          <td>{{e.due_date or '—'}}</td>
+          <td>
+            <form method="post" action="/dispute">
+              <input type="hidden" name="_csrf" value="{{csrf()}}">
+              <input type="hidden" name="ledger" value="{{e.id}}">
+              <input name="message" minlength="5" maxlength="500"
+                data-i18n-placeholder="placeholder_dispute" placeholder="{{ t('placeholder_dispute') }}" required
+                style="width:130px;display:inline;padding:6px 8px;font-size:12px;">
+              <button class="secondary btn-sm" data-i18n="btn_submit">{{ t('btn_submit') }}</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" data-i18n="no_txns_cu">{{ t('no_txns_cu') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{# ── Payments + Reminders ── #}
+<div class="columns">
+  <section class="panel">
+    <h2 data-i18n="panel_test_payments">{{ t('panel_test_payments') }}</h2>
+    {% for p in attempts %}
+    <div class="log">
+      <b>{{p.ref}}</b> · {{'{:,}'.format(p.amount)}} RWF · <span class="tag">{{ tv('status', p.status) }}</span>
+      {% if p.status=='pending' %}
+      <div class="actions">
+        <form method="post" action="/sandbox/{{p.id}}/success">
+          <input type="hidden" name="_csrf" value="{{csrf()}}">
+          <button data-i18n="btn_simulate_success">{{ t('btn_simulate_success') }}</button>
+        </form>
+        <form method="post" action="/sandbox/{{p.id}}/failed">
+          <input type="hidden" name="_csrf" value="{{csrf()}}">
+          <button class="secondary" data-i18n="btn_simulate_fail">{{ t('btn_simulate_fail') }}</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="text-muted" data-i18n="no_payment_attempts">{{ t('no_payment_attempts') }}</p>
+    {% endfor %}
+  </section>
+
+  <section class="panel">
+    <h2 data-i18n="panel_reminders">{{ t('panel_reminders') }}</h2>
+    {% for n in notifications %}
+    <p class="log">{{ notif_text(n.message) }}<br><small>{{n.created[:16]}} · {{ tv('status', n.status) }}</small></p>
+    {% else %}
+    <p class="text-muted" data-i18n="no_reminders_cu">{{ t('no_reminders_cu') }}</p>
+    {% endfor %}
+  </section>
+</div>
+
+{# ── My disputes ── #}
+{% if my_disputes %}
+<section class="panel">
+  <h2>⚖️ <span data-i18n="panel_my_disputes">{{ t('panel_my_disputes') }}</span></h2>
+  {% for d in my_disputes %}
+  <p class="log"><code class="ref-code">{{d.ledger_ref}}</code> · <span class="tag">{{ tv('status', d.status) }}</span><br>{{d.message}}</p>
+  {% endfor %}
+</section>
+{% endif %}
+
+<script>
+// Customer product search
+document.querySelectorAll('.product-search-cu').forEach(function(inp){
+  inp.addEventListener('input', function(){
+    var q = inp.value.toLowerCase();
+    var sid = inp.dataset.shop;
+    document.querySelectorAll('[data-shop-cu="'+sid+'"]').forEach(function(card){
+      card.style.display = card.dataset.nameCu.includes(q) ? '' : 'none';
+    });
+  });
+});
+</script>
+{% endblock %}

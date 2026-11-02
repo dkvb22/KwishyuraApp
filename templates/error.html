@@ -1,0 +1,7 @@
+{% extends 'base.html' %}{% block content %}
+<section class="panel">
+  <h1 data-i18n="err_page_title">{{ t('err_page_title') }}</h1>
+  <p data-i18n="{{ message_key }}">{{ t(message_key) }}</p>
+  <p><a class="button" href="/" data-i18n="err_back_home">{{ t('err_back_home') }}</a></p>
+</section>
+{% endblock %}

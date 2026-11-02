@@ -1,0 +1,868 @@
+{% extends 'base.html' %}{% block content %}
+
+{# ── Page Header ── #}
+<div class="heading">
+  <div>
+    <p class="eyebrow" data-i18n="sk_eyebrow">{{ t('sk_eyebrow') }}</p>
+    <h1>{{s.name}}</h1>
+    <p>
+      <span data-i18n="sk_code_hint">{{ t('sk_code_hint') }}</span>
+      <strong class="code">{{s.code}}</strong>
+    </p>
+  </div>
+  <div class="heading-actions">
+    <a class="button secondary" href="/settings" data-i18n="nav_settings">{{ t('nav_settings') }}</a>
+    <a class="button" href="/export" data-i18n="btn_export_csv">{{ t('btn_export_csv') }}</a>
+  </div>
+</div>
+
+{# ── Financial Summary Cards ── #}
+<div class="metrics metrics-5">
+  <div class="metric metric-accent">
+    <span>💳 <span data-i18n="metric_outstanding">{{ t('metric_outstanding') }}</span></span>
+    <strong id="card-outstanding">{{'{:,}'.format(outstanding)}} RWF</strong>
+  </div>
+  <div class="metric metric-green">
+    <span>📈 <span data-i18n="metric_total_sales">{{ t('metric_total_sales') }}</span></span>
+    <strong>{{'{:,}'.format(total_sales)}} RWF</strong>
+  </div>
+  <div class="metric metric-blue">
+    <span>💰 <span data-i18n="metric_total_payments">{{ t('metric_total_payments') }}</span></span>
+    <strong>{{'{:,}'.format(total_payments)}} RWF</strong>
+  </div>
+  <div class="metric">
+    <span>👥 <span data-i18n="metric_customers">{{ t('metric_customers') }}</span></span>
+    <strong>{{customers|length}}</strong>
+    {% if debtors > 0 %}<small class="badge-danger">{{debtors}} <span data-i18n="metric_in_debt">{{ t('metric_in_debt') }}</span></small>{% endif %}
+  </div>
+  <div class="metric">
+    <span>🧾 <span data-i18n="metric_entries">{{ t('metric_entries') }}</span></span>
+    <strong>{{entries|length}}</strong>
+  </div>
+</div>
+
+{# ── Balance Overview Chart ── #}
+<section class="panel chart-panel" id="overview">
+  <div class="chart-header">
+    <div>
+      <h2 data-i18n="chart_title">{{ t('chart_title') }}</h2>
+      <p class="chart-subtitle" data-i18n="chart_subtitle">{{ t('chart_subtitle') }}</p>
+    </div>
+    <div class="chart-controls">
+      <div class="period-tabs">
+        <button class="period-btn active" data-period="all" data-i18n="period_all">{{ t('period_all') }}</button>
+        <button class="period-btn" data-period="month" data-i18n="period_month">{{ t('period_month') }}</button>
+        <button class="period-btn" data-period="week" data-i18n="period_week">{{ t('period_week') }}</button>
+        <button class="period-btn" data-period="day" data-i18n="period_day">{{ t('period_day') }}</button>
+      </div>
+      <div class="chart-type-tabs">
+        <button class="chart-tab active" data-chart="trend" data-i18n="chart_tab_trend">{{ t('chart_tab_trend') }}</button>
+        <button class="chart-tab" data-chart="customer" data-i18n="chart_tab_customers">{{ t('chart_tab_customers') }}</button>
+      </div>
+    </div>
+  </div>
+  <div class="chart-wrapper">
+    <canvas id="balanceChart" height="300"></canvas>
+    <div id="chart-empty" class="chart-empty" style="display:none;">
+      <div class="chart-empty-icon">📊</div>
+      <p data-i18n="chart_no_data">{{ t('chart_no_data') }}</p>
+    </div>
+  </div>
+</section>
+
+{# ── Outstanding Balances Alert Section ── #}
+{% if debtors > 0 %}
+<section class="panel outstanding-panel" id="outstanding">
+  <div class="panel-header-row">
+    <h2>⚠️ <span data-i18n="panel_outstanding">{{ t('panel_outstanding') }}</span></h2>
+    <span class="badge-danger">{{debtors}}</span>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th data-i18n="th_customer">{{ t('th_customer') }}</th>
+          <th data-i18n="th_phone">{{ t('th_phone') }}</th>
+          <th data-i18n="th_total_credit">{{ t('th_total_credit') }}</th>
+          <th data-i18n="th_paid">{{ t('th_paid') }}</th>
+          <th data-i18n="th_outstanding">{{ t('th_outstanding') }}</th>
+          <th data-i18n="th_progress">{{ t('th_progress') }}</th>
+          <th data-i18n="th_reminder">{{ t('th_reminder') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in customers %}
+        {% set bal = balances[u.id] %}
+        {% if bal > 0 %}
+        <tr>
+          <td><strong>{{u.name}}</strong></td>
+          <td>{{u.phone}}</td>
+          <td>
+            {% set sold = cust_sold[u.id] %}
+            {{'{:,}'.format(sold)}} RWF
+          </td>
+          <td>{{'{:,}'.format([0, sold - bal]|max)}} RWF</td>
+          <td><strong class="text-danger">{{'{:,}'.format(bal)}} RWF</strong></td>
+          <td>
+            <div class="balance-bar-wrap">
+              {% set pct = [0, [((sold - bal) * 100 // sold) if sold > 0 else 0, 100]|min]|max %}
+              <div class="balance-bar" style="width:{{pct}}%"></div>
+            </div>
+          </td>
+          <td>
+            <form method="post" action="/remind">
+              <input type="hidden" name="_csrf" value="{{csrf()}}">
+              <input type="hidden" name="customer" value="{{u.id}}">
+              <button class="secondary btn-sm" data-i18n="btn_simulate_sms">{{ t('btn_simulate_sms') }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{# ── Credit Sale Form (Multi-product) ── #}
+<div class="columns" id="sales">
+  <section class="panel">
+    <h2 data-i18n="panel_record_sale">{{ t('panel_record_sale') }}</h2>
+    <form method="post" action="/sale" id="sale-form">
+      <input type="hidden" name="_csrf" value="{{csrf()}}">
+
+      <label>
+        <span data-i18n="label_customer">{{ t('label_customer') }}</span>
+        <select name="customer" required id="sale-customer">
+          {% for u in customers %}
+          <option value="{{u.id}}">{{u.name}} · {{u.phone}}
+            ({{'{:,}'.format(balances[u.id])}} RWF)
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      {# Product line items #}
+      <div id="line-items">
+        <div class="line-item-header">
+          <span data-i18n="label_products">{{ t('label_products') }}</span>
+          <button type="button" class="secondary btn-sm" id="add-line-btn" data-i18n="btn_add_line">{{ t('btn_add_line') }}</button>
+        </div>
+        <div id="line-items-body">
+          {# First row is rendered by JS, we start with one #}
+        </div>
+      </div>
+
+      {# Sale total preview #}
+      <div class="total-preview" id="sale-total-box">
+        <div>
+          <span data-i18n="label_total">{{ t('label_total') }}</span>
+          <strong id="sale-total-val">0 RWF</strong>
+        </div>
+        <div class="total-breakdown" id="sale-breakdown"></div>
+      </div>
+
+      <div class="two" style="margin-top:12px;">
+        <label>
+          <span data-i18n="label_due_date">{{ t('label_due_date') }}</span>
+          <input name="due" type="date">
+        </label>
+        <label>
+          <span data-i18n="label_notes">{{ t('label_notes') }}</span>
+          <input name="notes" maxlength="200" data-i18n-placeholder="placeholder_notes" placeholder="{{ t('placeholder_notes') }}">
+        </label>
+      </div>
+      <button {% if not customers %}disabled{% endif %} id="sale-submit-btn" data-i18n="btn_save_sale">{{ t('btn_save_sale') }}</button>
+    </form>
+  </section>
+
+  {# Repayment + Find customer #}
+  <section class="panel">
+    <h2 data-i18n="panel_repay">{{ t('panel_repay') }}</h2>
+    <form method="post" action="/repay">
+      <input type="hidden" name="_csrf" value="{{csrf()}}">
+      <label>
+        <span data-i18n="label_customer">{{ t('label_customer') }}</span>
+        <select name="customer" required>
+          {% for u in customers %}
+          <option value="{{u.id}}">{{u.name}} — {{'{:,}'.format(balances[u.id])}} RWF</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span data-i18n="label_amount">{{ t('label_amount') }}</span>
+        <input type="number" name="amount" min="1" required>
+      </label>
+      <button {% if not customers %}disabled{% endif %} data-i18n="btn_confirm_repay">{{ t('btn_confirm_repay') }}</button>
+    </form>
+
+    <h3 data-i18n="panel_find_customer">{{ t('panel_find_customer') }}</h3>
+    <form method="post" action="/customer">
+      <input type="hidden" name="_csrf" value="{{csrf()}}">
+      <label>
+        <span data-i18n="label_cust_phone">{{ t('label_cust_phone') }}</span>
+        <input name="phone" placeholder="+250788123456">
+      </label>
+      <button class="secondary" data-i18n="btn_check_reg">{{ t('btn_check_reg') }}</button>
+    </form>
+  </section>
+</div>
+
+{# ── Products (My Products) ── #}
+<section class="panel" id="products">
+  <div class="panel-header-row">
+    <h2>🛒 <span data-i18n="panel_products">{{ t('panel_products') }}</span></h2>
+    <button class="button" id="open-add-product">+ <span data-i18n="btn_add_product">{{ t('btn_add_product') }}</span></button>
+  </div>
+
+  {% if products %}
+  {# Search bar #}
+  <div class="search-row">
+    <input type="text" id="product-search" data-i18n-placeholder="placeholder_search_product" placeholder="{{ t('placeholder_search_product') }}" class="search-input">
+    <select id="product-cat-filter" class="search-input" style="max-width:200px;">
+      <option value="" data-i18n="filter_all_categories">{{ t('filter_all_categories') }}</option>
+      {% for cat in categories %}<option value="{{cat}}" {{ tva('cat', cat) }}>{{ tv_text('cat', cat) }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="product-grid" id="product-grid">
+    {% for p in products %}
+    <div class="product-card {% if p.status=='unavailable' %}product-unavailable{% endif %}"
+         data-name="{{p.name|lower}}" data-cat="{{p.category}}">
+      <div class="product-card-header">
+        <div class="product-icon">
+          {% if p.category == 'Food & Groceries' %}🌾
+          {% elif p.category == 'Beverages' %}🥤
+          {% elif p.category == 'Household' %}🏠
+          {% elif p.category == 'Personal Care' %}🧴
+          {% elif p.category == 'Dairy' %}🥛
+          {% elif p.category == 'Grains & Cereals' %}🌽
+          {% elif p.category == 'Vegetables & Fruits' %}🥦
+          {% else %}📦{% endif %}
+        </div>
+        <div class="product-status-badge {% if p.status=='available' %}badge-available{% else %}badge-unavailable{% endif %}">
+          {{ tv('status', p.status) }}
+        </div>
+      </div>
+      <div class="product-info">
+        <strong class="product-name">{{p.name}}</strong>
+        <span class="product-cat">{{ tv('cat', p.category) }}</span>
+        <span class="product-price">{{'{:,}'.format(p.price_per_unit)}} RWF / {{ tv('unit', p.unit) }}</span>
+        {% if p.stock_qty is not none %}<span class="product-stock">{{ tx('stock_label') }} {{p.stock_qty}} {{ tv('unit', p.unit) }}</span>{% endif %}
+        {% if p.description %}<span class="product-desc">{{p.description[:60]}}{% if p.description|length > 60 %}…{% endif %}</span>{% endif %}
+      </div>
+      <div class="product-actions">
+        <button class="secondary btn-sm btn-use-product"
+          data-id="{{p.id}}" data-name="{{p.name}}"
+          data-unit="{{p.unit}}" data-price="{{p.price_per_unit}}">
+          ➕ <span data-i18n="btn_use">{{ t('btn_use') }}</span>
+        </button>
+        <button class="secondary btn-sm" data-i18n-title="title_edit" title="{{ t('title_edit') }}" onclick="openEditProduct({{p.id}}, '{{p.name|replace("'","\\'")|replace('"','\\"')}}', '{{p.description|replace("'","\\'")|replace('"','\\"')}}', '{{p.category}}', '{{p.unit}}', {{p.price_per_unit}}, '{{p.stock_qty if p.stock_qty is not none else ""}}', '{{p.status}}')">✏️</button>
+        <form method="post" action="/products/{{p.id}}/toggle" style="display:inline;">
+          <input type="hidden" name="_csrf" value="{{csrf()}}">
+          <button class="secondary btn-sm" data-i18n-title="title_toggle" title="{{ t('title_toggle') }}">{% if p.status=='available' %}🔴{% else %}🟢{% endif %}</button>
+        </form>
+        <form method="post" action="/products/{{p.id}}/delete" style="display:inline;"
+              data-confirm="confirm_delete_product" data-i18n-params='{{ {"name": p.name}|tojson }}'>
+          <input type="hidden" name="_csrf" value="{{csrf()}}">
+          <button class="danger-btn btn-sm" data-i18n-title="title_delete" title="{{ t('title_delete') }}">🗑️</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🛒</div>
+    <h3 data-i18n="products_empty_title">{{ t('products_empty_title') }}</h3>
+    <p data-i18n="products_empty_desc">{{ t('products_empty_desc') }}</p>
+    <button class="button" id="open-add-product-2">+ <span data-i18n="btn_add_product">{{ t('btn_add_product') }}</span></button>
+  </div>
+  {% endif %}
+</section>
+
+{# ── Transaction Ledger ── #}
+<section class="panel" id="ledger">
+  <div class="panel-header-row">
+    <h2 data-i18n="panel_ledger">{{ t('panel_ledger') }}</h2>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input type="text" id="ledger-search" data-i18n-placeholder="placeholder_search" placeholder="{{ t('placeholder_search') }}" class="search-input" style="max-width:180px;">
+      <select id="ledger-filter-type" class="search-input" style="max-width:140px;">
+        <option value="" data-i18n="filter_all_types">{{ t('filter_all_types') }}</option>
+        <option value="sale" data-i18n="kind_sale">{{ t('kind_sale') }}</option>
+        <option value="payment" data-i18n="kind_payment">{{ t('kind_payment') }}</option>
+        <option value="reversal" data-i18n="kind_reversal">{{ t('kind_reversal') }}</option>
+      </select>
+      <select id="ledger-filter-customer" class="search-input" style="max-width:160px;">
+        <option value="" data-i18n="filter_all_customers">{{ t('filter_all_customers') }}</option>
+        {% for u in customers %}
+        <option value="{{u.name|lower}}">{{u.name}}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <p data-i18n="ledger_note">{{ t('ledger_note') }}</p>
+
+  <div class="tablewrap">
+    <table id="ledger-table">
+      <thead>
+        <tr>
+          <th data-i18n="th_ref">{{ t('th_ref') }}</th>
+          <th data-i18n="th_customer">{{ t('th_customer') }}</th>
+          <th data-i18n="th_type">{{ t('th_type') }}</th>
+          <th data-i18n="th_details">{{ t('th_details') }}</th>
+          <th data-i18n="th_qty">{{ t('th_qty') }}</th>
+          <th data-i18n="th_unit_price">{{ t('th_unit_price') }}</th>
+          <th data-i18n="th_amount">{{ t('th_amount') }}</th>
+          <th data-i18n="th_date">{{ t('th_date') }}</th>
+          <th data-i18n="th_action">{{ t('th_action') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in entries %}
+        <tr data-kind="{{e.kind}}" data-customer="{{e.customer|lower}}">
+          <td><code class="ref-code">{{e.ref}}</code></td>
+          <td>{{e.customer}}</td>
+          <td>
+            <span class="tag tag-{{e.kind}}">
+              {% if e.kind=='sale' %}📤
+              {% elif e.kind=='payment' %}✅
+              {% else %}↩️{% endif %}
+              {{ tv('kind', e.kind) }}
+            </span>
+          </td>
+          <td class="item-cell">{{ item_text(e.item) }}</td>
+          <td>{% if e.kind=='sale' %}{{e.qty}}{% else %}—{% endif %}</td>
+          <td>{% if e.kind=='sale' and e.unit_price %}{{'{:,}'.format(e.unit_price)}} RWF{% else %}—{% endif %}</td>
+          <td><strong>{{'{:,}'.format(e.amount)}} RWF</strong></td>
+          <td>{{e.created[:10]}}</td>
+          <td>
+            {% if e.kind == 'reversal' %}
+            <span class="text-muted">—</span>
+            {% elif e.id in reversed_ids %}
+            <span class="tag">↩️ {{ tx('status_reversed') }}</span>
+            {% else %}
+            <form method="post" action="/reverse/{{e.id}}"
+                  data-confirm="confirm_reverse" data-i18n-params='{{ {"ref": e.ref}|tojson }}'>
+              <input type="hidden" name="_csrf" value="{{csrf()}}">
+              <button class="secondary btn-sm" data-i18n="btn_reverse">{{ t('btn_reverse') }}</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="empty-row" data-i18n="no_txns">{{ t('no_txns') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Ledger Reset – Danger Zone #}
+  <div class="ledger-reset-zone">
+    <div class="danger-header" style="border-bottom:0;margin-bottom:0;padding-bottom:0;">
+      <span class="danger-icon">⚠️</span>
+      <div>
+        <strong data-i18n="reset_title">{{ t('reset_title') }}</strong>
+        <p style="margin:4px 0 0;font-size:12px;" data-i18n="reset_desc">{{ t('reset_desc') }}</p>
+      </div>
+      <button class="danger-btn btn-sm" id="open-reset-modal" style="margin-left:auto;">
+        🗑️ <span data-i18n="btn_reset">{{ t('btn_reset') }}</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+{# ── SMS Log + Disputes ── #}
+<div class="columns">
+  <section class="panel">
+    <h2 data-i18n="panel_sms_log">{{ t('panel_sms_log') }}</h2>
+    {% for n in notifications %}
+    <p class="log"><b>{{n.customer}}</b> · {{ tv('status', n.status) }}<br><small>{{n.created[:16]}}</small><br>{{ notif_text(n.message) }}</p>
+    {% else %}
+    <p class="text-muted" data-i18n="no_reminders">{{ t('no_reminders') }}</p>
+    {% endfor %}
+  </section>
+  <section class="panel" id="disputes">
+    <h2 data-i18n="panel_disputes">{{ t('panel_disputes') }}</h2>
+    {% for d in disputes %}
+    <p class="log"><b>{{d.customer}}</b> · <span class="tag">{{ tv('status', d.status) }}</span><br>{{d.message}}
+      {% if d.status == 'open' %}
+      <form method="post" action="/disputes/{{d.id}}/resolve" style="margin-top:6px;">
+        <input type="hidden" name="_csrf" value="{{csrf()}}">
+        <button class="secondary btn-sm">✅ <span data-i18n="btn_resolve">{{ t('btn_resolve') }}</span></button>
+      </form>
+      {% endif %}
+    </p>
+    {% else %}
+    <p class="text-muted" data-i18n="no_disputes">{{ t('no_disputes') }}</p>
+    {% endfor %}
+  </section>
+</div>
+
+{# ══════════════════════════════════════
+   MODALS
+   ══════════════════════════════════════ #}
+
+{# Add Product Modal #}
+<div id="modal-add-product" class="modal-overlay" style="display:none;">
+  <div class="modal-box modal-wide">
+    <div class="modal-title-row">
+      <h2>🛒 <span data-i18n="modal_add_product">{{ t('modal_add_product') }}</span></h2>
+      <button type="button" class="modal-close" data-close="modal-add-product">✕</button>
+    </div>
+    <form method="post" action="/products/add">
+      <input type="hidden" name="_csrf" value="{{csrf()}}">
+      <div class="two">
+        <label>
+          <span data-i18n="f_product_name">{{ t('f_product_name') }}</span>
+          <input name="name" required maxlength="120" data-i18n-placeholder="placeholder_product_name" placeholder="{{ t('placeholder_product_name') }}">
+        </label>
+        <label>
+          <span data-i18n="f_category">{{ t('f_category') }}</span>
+          <select name="category">
+            {% for cat in categories %}<option value="{{cat}}" {{ tva('cat', cat) }}>{{ tv_text('cat', cat) }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="two">
+        <label>
+          <span data-i18n="f_unit">{{ t('f_unit') }}</span>
+          <select name="unit" id="add-unit">
+            {% for u in units %}<option value="{{u}}" {{ tva('unit', u) }}>{{ tv_text('unit', u) }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>
+          <span data-i18n="f_price_per_unit">{{ t('f_price_per_unit') }}</span>
+          <input name="price" type="number" min="1" required placeholder="1500">
+        </label>
+      </div>
+      <div class="two">
+        <label>
+          <span data-i18n="f_stock">{{ t('f_stock') }}</span>
+          <input name="stock" type="number" step="0.01" min="0" data-i18n-placeholder="placeholder_stock" placeholder="{{ t('placeholder_stock') }}">
+        </label>
+        <label>
+          <span data-i18n="f_status">{{ t('f_status') }}</span>
+          <select name="status">
+            <option value="available" data-i18n="status_available">{{ t('status_available') }}</option>
+            <option value="unavailable" data-i18n="status_unavailable">{{ t('status_unavailable') }}</option>
+          </select>
+        </label>
+      </div>
+      <label>
+        <span data-i18n="f_description">{{ t('f_description') }}</span>
+        <input name="description" maxlength="255" data-i18n-placeholder="placeholder_notes" placeholder="{{ t('placeholder_notes') }}">
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="secondary" data-close="modal-add-product" data-i18n="btn_cancel">{{ t('btn_cancel') }}</button>
+        <button type="submit" data-i18n="btn_add_product">{{ t('btn_add_product') }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# Edit Product Modal #}
+<div id="modal-edit-product" class="modal-overlay" style="display:none;">
+  <div class="modal-box modal-wide">
+    <div class="modal-title-row">
+      <h2>✏️ <span data-i18n="modal_edit_product">{{ t('modal_edit_product') }}</span></h2>
+      <button type="button" class="modal-close" data-close="modal-edit-product">✕</button>
+    </div>
+    <form method="post" id="edit-product-form" action="">
+      <input type="hidden" name="_csrf" value="{{csrf()}}">
+      <div class="two">
+        <label><span data-i18n="f_name_short">{{ t('f_name_short') }}</span><input id="edit-name" name="name" required maxlength="120"></label>
+        <label><span data-i18n="f_category">{{ t('f_category') }}</span><select name="category" id="edit-category">
+          {% for cat in categories %}<option value="{{cat}}" {{ tva('cat', cat) }}>{{ tv_text('cat', cat) }}</option>{% endfor %}
+        </select></label>
+      </div>
+      <div class="two">
+        <label><span data-i18n="f_unit_short">{{ t('f_unit_short') }}</span><select name="unit" id="edit-unit">
+          {% for u in units %}<option value="{{u}}" {{ tva('unit', u) }}>{{ tv_text('unit', u) }}</option>{% endfor %}
+        </select></label>
+        <label><span data-i18n="f_price_short">{{ t('f_price_short') }}</span><input id="edit-price" name="price" type="number" min="1" required></label>
+      </div>
+      <div class="two">
+        <label><span data-i18n="f_stock_short">{{ t('f_stock_short') }}</span><input id="edit-stock" name="stock" type="number" step="0.01" min="0"></label>
+        <label><span data-i18n="f_status">{{ t('f_status') }}</span><select name="status" id="edit-status">
+          <option value="available" data-i18n="status_available">{{ t('status_available') }}</option>
+          <option value="unavailable" data-i18n="status_unavailable">{{ t('status_unavailable') }}</option>
+        </select></label>
+      </div>
+      <label><span data-i18n="f_description_short">{{ t('f_description_short') }}</span><input id="edit-description" name="description" maxlength="255"></label>
+      <div class="modal-actions">
+        <button type="button" class="secondary" data-close="modal-edit-product" data-i18n="btn_cancel">{{ t('btn_cancel') }}</button>
+        <button type="submit" data-i18n="btn_save_changes">{{ t('btn_save_changes') }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# Ledger Reset Modal #}
+<div id="modal-reset" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-danger-icon">⚠️</div>
+    <h2 data-i18n="modal_reset_title">{{ t('modal_reset_title') }}</h2>
+    <p data-i18n="modal_reset_warning">{{ t('modal_reset_warning') }}</p>
+    <div style="text-align:center;margin:12px 0;">
+      <a href="/export" class="button secondary" target="_blank">📥 <span data-i18n="btn_export_before">{{ t('btn_export_before') }}</span></a>
+    </div>
+    <form method="post" action="/ledger/reset">
+      <input type="hidden" name="_csrf" value="{{csrf()}}">
+      <label>
+        <span data-i18n="modal_type_reset" data-i18n-html>{{ t_html('modal_type_reset') }}</span>
+        <input name="confirm_text" required placeholder="RESET" autocomplete="off" id="reset-text-input">
+      </label>
+      <label>
+        <span data-i18n="label_your_password">{{ t('label_your_password') }}</span>
+        <input name="confirm_password" type="password" required>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="secondary" data-close="modal-reset" data-i18n="btn_cancel">{{ t('btn_cancel') }}</button>
+        <button type="submit" class="danger-btn" id="reset-submit-btn" disabled>🗑️ <span data-i18n="btn_confirm_reset">{{ t('btn_confirm_reset') }}</span></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ══════════════════════════════════════
+   SCRIPTS
+   ══════════════════════════════════════ #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// ── Product registry from server ──────────────────────────────────────────────
+const PRODUCTS = [
+  {% for p in products %}
+  {id:{{p.id}},name:{{p.name|tojson}},unit:{{p.unit|tojson}},price:{{p.price_per_unit}},status:{{p.status|tojson}}},
+  {% endfor %}
+];
+
+// ── Modal helpers ─────────────────────────────────────────────────────────────
+function openModal(id){ document.getElementById(id).style.display='flex'; }
+function closeModal(id){ document.getElementById(id).style.display='none'; }
+document.querySelectorAll('[data-close]').forEach(function(btn){
+  btn.addEventListener('click',function(){ closeModal(btn.dataset.close); });
+});
+document.querySelectorAll('.modal-overlay').forEach(function(m){
+  m.addEventListener('click',function(e){ if(e.target===m) closeModal(m.id); });
+});
+
+// Add product buttons
+['open-add-product','open-add-product-2'].forEach(function(id){
+  var b=document.getElementById(id); if(b) b.addEventListener('click',function(){ openModal('modal-add-product'); });
+});
+
+function openEditProduct(id,name,desc,cat,unit,price,stock,status){
+  document.getElementById('edit-product-form').action='/products/'+id+'/edit';
+  document.getElementById('edit-name').value=name;
+  document.getElementById('edit-description').value=desc;
+  document.getElementById('edit-price').value=price;
+  document.getElementById('edit-stock').value=stock;
+  var catSel=document.getElementById('edit-category');
+  for(var i=0;i<catSel.options.length;i++) if(catSel.options[i].value===cat) catSel.selectedIndex=i;
+  var unitSel=document.getElementById('edit-unit');
+  for(var i=0;i<unitSel.options.length;i++) if(unitSel.options[i].value===unit) unitSel.selectedIndex=i;
+  var statusSel=document.getElementById('edit-status');
+  for(var i=0;i<statusSel.options.length;i++) if(statusSel.options[i].value===status) statusSel.selectedIndex=i;
+  openModal('modal-edit-product');
+}
+
+// Reset modal
+var openResetBtn=document.getElementById('open-reset-modal');
+if(openResetBtn) openResetBtn.addEventListener('click',function(){ openModal('modal-reset'); });
+var resetInput=document.getElementById('reset-text-input');
+var resetSubmit=document.getElementById('reset-submit-btn');
+if(resetInput) resetInput.addEventListener('input',function(){
+  resetSubmit.disabled = resetInput.value.toUpperCase()!=='RESET';
+});
+
+// ── Multi-product line item builder ──────────────────────────────────────────
+var lineCount = 0;
+var lineItemsBody = document.getElementById('line-items-body');
+
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function productOptionText(p){
+  return p.name+' ('+p.price.toLocaleString()+' RWF/'+KW.unit(p.unit)+')';
+}
+function buildProductOptions(selectedId){
+  var opts='<option value="" data-i18n="select_product">'+esc(KW.t('select_product'))+'</option>';
+  PRODUCTS.forEach(function(p){
+    opts+='<option value="'+p.id+'" data-unit="'+esc(p.unit)+'" data-price="'+p.price+'" data-name="'+esc(p.name)+'" '
+      +(p.id===selectedId?'selected':'')
+      +(p.status==='unavailable'?' disabled':'')+'>'+esc(productOptionText(p))+'</option>';
+  });
+  return opts;
+}
+
+function addLineItem(preselect){
+  var idx = lineCount++;
+  var div = document.createElement('div');
+  div.className='line-item';
+  div.dataset.idx=idx;
+  div.innerHTML=
+    '<div class="line-item-grid">'+
+      '<div class="li-product">'+
+        '<label style="margin:0" data-i18n="li_product">'+esc(KW.t('li_product'))+'</label>'+
+        '<select class="li-product-select" name="product_id[]" onchange="onProductSelect(this,'+idx+')">'+
+          buildProductOptions(preselect?preselect.id:null)+
+        '</select>'+
+        '<input type="hidden" class="li-product-name" name="product_name[]" value="'+(preselect?esc(preselect.name):'')+'">'+
+        '<input type="hidden" class="li-unit-hidden" name="unit[]" value="'+(preselect?esc(preselect.unit):'pcs')+'">'+
+      '</div>'+
+      '<div class="li-qty">'+
+        '<label style="margin:0"><span data-i18n="li_qty">'+esc(KW.t('li_qty'))+'</span> <span class="li-unit-label" data-unit="'+(preselect?esc(preselect.unit):'')+'">'+(preselect?esc(KW.unit(preselect.unit)):'')+'</span></label>'+
+        '<input type="number" class="li-qty-input" name="qty[]" min="0.01" step="0.01" value="1" required oninput="recalcLine('+idx+')">'+
+      '</div>'+
+      '<div class="li-price">'+
+        '<label style="margin:0" data-i18n="li_price">'+esc(KW.t('li_price'))+'</label>'+
+        '<input type="number" class="li-price-input" name="unit_price[]" min="1" value="'+(preselect?preselect.price:'')+'" required oninput="recalcLine('+idx+')">'+
+      '</div>'+
+      '<div class="li-subtotal">'+
+        '<label style="margin:0" data-i18n="li_subtotal">'+esc(KW.t('li_subtotal'))+'</label>'+
+        '<strong class="li-sub-val">0 RWF</strong>'+
+      '</div>'+
+      '<button type="button" class="danger-btn btn-sm li-remove" onclick="removeLine(this)" style="align-self:flex-end;margin-bottom:2px;">✕</button>'+
+    '</div>';
+  lineItemsBody.appendChild(div);
+  if(preselect) recalcLine(idx);
+  updateTotals();
+}
+
+function onProductSelect(sel, idx){
+  var opt = sel.options[sel.selectedIndex];
+  var div = lineItemsBody.querySelector('[data-idx="'+idx+'"]');
+  if(!div) return;
+  var price = opt.dataset.price||'';
+  var unit  = opt.dataset.unit||'pcs';
+  var name  = opt.dataset.name||'';
+  div.querySelector('.li-price-input').value=price;
+  var unitLbl=div.querySelector('.li-unit-label');
+  unitLbl.dataset.unit=opt.dataset.unit||'';
+  unitLbl.textContent=opt.dataset.unit?KW.unit(unit):'';
+  div.querySelector('.li-product-name').value=name;
+  div.querySelector('.li-unit-hidden').value=unit;
+  recalcLine(idx);
+}
+
+function recalcLine(idx){
+  var div=lineItemsBody.querySelector('[data-idx="'+idx+'"]');
+  if(!div) return;
+  var qty=parseFloat(div.querySelector('.li-qty-input').value)||0;
+  var price=parseInt(div.querySelector('.li-price-input').value)||0;
+  var sub=Math.round(qty*price);
+  div.querySelector('.li-sub-val').textContent=sub>0?sub.toLocaleString()+' RWF':'0 RWF';
+  updateTotals();
+}
+
+function removeLine(btn){
+  var div=btn.closest('.line-item');
+  if(lineItemsBody.children.length<=1){ alert(KW.t('alert_min_one_line')); return; }
+  div.remove();
+  updateTotals();
+}
+
+function updateTotals(){
+  var total=0;
+  var parts=[];
+  lineItemsBody.querySelectorAll('.line-item').forEach(function(div){
+    var qty=parseFloat(div.querySelector('.li-qty-input').value)||0;
+    var price=parseInt(div.querySelector('.li-price-input').value)||0;
+    var sub=Math.round(qty*price);
+    var name=div.querySelector('.li-product-name').value||KW.t('item_default');
+    if(sub>0){ total+=sub; parts.push(name+': '+sub.toLocaleString()+' RWF'); }
+  });
+  document.getElementById('sale-total-val').textContent=total>0?total.toLocaleString()+' RWF':'0 RWF';
+  document.getElementById('sale-breakdown').innerHTML=parts.map(function(p){
+    return '<span class="breakdown-item">'+p+'</span>';
+  }).join('');
+}
+
+document.getElementById('add-line-btn').addEventListener('click',function(){ addLineItem(null); });
+
+// "Use product" button from product grid
+document.querySelectorAll('.btn-use-product').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    var p={id:parseInt(btn.dataset.id),name:btn.dataset.name,unit:btn.dataset.unit,price:parseInt(btn.dataset.price)};
+    addLineItem(p);
+    document.getElementById('sales').scrollIntoView({behavior:'smooth'});
+  });
+});
+
+// Start with one empty line
+addLineItem(null);
+
+// Browser-built text follows the selected language immediately
+document.addEventListener('kw:langchange',function(){
+  lineItemsBody.querySelectorAll('.li-unit-label').forEach(function(el){
+    el.textContent=el.dataset.unit?KW.unit(el.dataset.unit):'';
+  });
+  lineItemsBody.querySelectorAll('.li-product-select option[data-name]').forEach(function(o){
+    var p=PRODUCTS.filter(function(x){ return String(x.id)===o.value; })[0];
+    if(p) o.textContent=productOptionText(p);
+  });
+  updateTotals();
+});
+
+// ── Product search / filter ───────────────────────────────────────────────────
+var psearch=document.getElementById('product-search');
+var pcatf=document.getElementById('product-cat-filter');
+function filterProducts(){
+  var q=(psearch?psearch.value.toLowerCase():'');
+  var cat=(pcatf?pcatf.value:'');
+  document.querySelectorAll('.product-card').forEach(function(c){
+    var nameMatch=c.dataset.name.includes(q);
+    var catMatch=!cat||c.dataset.cat===cat;
+    c.style.display=(nameMatch&&catMatch)?'':'none';
+  });
+}
+if(psearch) psearch.addEventListener('input',filterProducts);
+if(pcatf) pcatf.addEventListener('change',filterProducts);
+
+// ── Ledger filter ──────────────────────────────────────────────────────────
+var lsearch=document.getElementById('ledger-search');
+var ltype=document.getElementById('ledger-filter-type');
+var lcust=document.getElementById('ledger-filter-customer');
+function filterLedger(){
+  var q=(lsearch?lsearch.value.toLowerCase():'');
+  var t=(ltype?ltype.value:'');
+  var cu=(lcust?lcust.value:'');
+  document.querySelectorAll('#ledger-table tbody tr').forEach(function(row){
+    if(row.classList.contains('empty-row')){ row.style.display=''; return; }
+    var kind=row.dataset.kind||'';
+    var cust=row.dataset.customer||'';
+    var text=row.textContent.toLowerCase();
+    var show=(!t||kind===t)&&(!cu||cust.includes(cu))&&(!q||text.includes(q));
+    row.style.display=show?'':'none';
+  });
+}
+if(lsearch) lsearch.addEventListener('input',filterLedger);
+if(ltype) ltype.addEventListener('change',filterLedger);
+if(lcust) lcust.addEventListener('change',filterLedger);
+
+// ── Balance Overview Chart ────────────────────────────────────────────────────
+(function(){
+  var canvas=document.getElementById('balanceChart');
+  var emptyMsg=document.getElementById('chart-empty');
+  var currentMode='trend';
+  var currentPeriod='all';
+  var chartInst=null;
+  var chartData=null;
+
+  function isDark(){ return document.documentElement.getAttribute('data-theme')==='dark'; }
+  function gc(){ return isDark()?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'; }
+  function tc(){ return isDark()?'#9ab09b':'#647164'; }
+
+  var COLORS={
+    outstanding: isDark()?'#f08060':'#c0392b',
+    sales: isDark()?'#78c47e':'#355e3b',
+    payments: isDark()?'#60a0f0':'#2980b9',
+    pie: ['#355e3b','#78ae50','#2980b9','#f39c12','#9b59b6','#e74c3c','#1abc9c','#d35400']
+  };
+
+  function tooltipFmt(ctx){ return ' '+ctx.parsed.y.toLocaleString()+' RWF'; }
+  function tooltipFmtPie(ctx){ return ' '+ctx.label+': '+ctx.parsed.toLocaleString()+' RWF'; }
+
+  function buildTrendChart(d){
+    return {
+      type:'line',
+      data:{
+        labels:d.labels,
+        datasets:[
+          {label:KW.t('series_outstanding'),data:d.balance_trend,borderColor:'#c0392b',backgroundColor:'rgba(192,57,43,0.1)',borderWidth:2.5,fill:true,tension:0.4,pointRadius:3},
+          {label:KW.t('series_sales'),data:d.daily_sales,borderColor:'#355e3b',backgroundColor:'rgba(53,94,59,0.07)',borderWidth:2,fill:false,tension:0.3,pointRadius:2},
+          {label:KW.t('series_paid'),data:d.daily_payments,borderColor:'#2980b9',backgroundColor:'rgba(41,128,185,0.07)',borderWidth:2,fill:false,tension:0.3,pointRadius:2}
+        ]
+      },
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        interaction:{mode:'index',intersect:false},
+        plugins:{
+          legend:{display:true,labels:{color:tc(),font:{size:11}}},
+          tooltip:{callbacks:{label:tooltipFmt}}
+        },
+        scales:{
+          x:{grid:{color:gc()},ticks:{color:tc(),maxTicksLimit:10}},
+          y:{grid:{color:gc()},ticks:{color:tc(),callback:function(v){ return v.toLocaleString()+' RWF'; }},
+            title:{display:true,text:'RWF',color:tc()}}
+        }
+      }
+    };
+  }
+
+  function buildCustomerChart(d){
+    return {
+      type:'bar',
+      data:{
+        labels:d.cust_labels,
+        datasets:[
+          {label:KW.t('series_sales'),data:d.cust_sales,backgroundColor:'rgba(53,94,59,0.7)',borderRadius:6},
+          {label:KW.t('series_paid'),data:d.cust_payments,backgroundColor:'rgba(41,128,185,0.7)',borderRadius:6},
+          {label:KW.t('th_outstanding'),data:d.cust_balances,backgroundColor:'rgba(192,57,43,0.8)',borderRadius:6}
+        ]
+      },
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        plugins:{
+          legend:{display:true,labels:{color:tc()}},
+          tooltip:{callbacks:{label:tooltipFmt}}
+        },
+        scales:{
+          x:{grid:{color:gc()},ticks:{color:tc()}},
+          y:{grid:{color:gc()},ticks:{color:tc(),callback:function(v){ return v.toLocaleString()+' RWF'; }}}
+        }
+      }
+    };
+  }
+
+  function renderChart(){
+    if(chartInst){ chartInst.destroy(); chartInst=null; }
+    if(!chartData) return;
+    var isEmpty=(currentMode==='trend'?chartData.labels.length===0:chartData.cust_labels.length===0);
+    if(isEmpty){ canvas.style.display='none'; emptyMsg.style.display='flex'; return; }
+    canvas.style.display='block'; emptyMsg.style.display='none';
+    var cfg=currentMode==='trend'?buildTrendChart(chartData):buildCustomerChart(chartData);
+    chartInst=new Chart(canvas,cfg);
+    // Update summary card
+    if(chartData.summary){
+      var el=document.getElementById('card-outstanding');
+      if(el) el.textContent=chartData.summary.outstanding.toLocaleString()+' RWF';
+    }
+  }
+
+  function fetchAndRender(){
+    fetch('/chart-data?period='+currentPeriod)
+      .then(function(r){ return r.json(); })
+      .then(function(d){ chartData=d; renderChart(); })
+      .catch(function(){ emptyMsg.style.display='flex'; canvas.style.display='none'; });
+  }
+
+  document.querySelectorAll('.chart-tab').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      document.querySelectorAll('.chart-tab').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentMode=btn.dataset.chart;
+      renderChart();
+    });
+  });
+
+  document.querySelectorAll('.period-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      document.querySelectorAll('.period-btn').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentPeriod=btn.dataset.period;
+      fetchAndRender();
+    });
+  });
+
+  document.addEventListener('kw:langchange',function(){ if(chartInst) renderChart(); });
+
+  var themeObserver=new MutationObserver(function(){ if(chartInst) renderChart(); });
+  themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+
+  fetchAndRender();
+})();
+</script>
+{% endblock %}

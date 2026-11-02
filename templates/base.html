@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ t('page_title') }}</title>
+  <link rel="stylesheet" href="{{url_for('static',filename='style.css')}}">
+  <script>
+    // Apply theme before paint to avoid flash
+    (function(){
+      var t=localStorage.getItem('kwishyura_theme')||'light';
+      document.documentElement.setAttribute('data-theme',t);
+    })();
+    // Single translation table (translations.py) + the language chosen for this account
+    window.KW_I18N = {{ i18n_table|tojson }};
+    window.KW_LANG = {{ lang|tojson }};
+    window.KW_CSRF = {{ csrf()|tojson }};
+  </script>
+  <script src="{{url_for('static',filename='i18n.js')}}"></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">
+    <img src="{{url_for('static',filename='logo.png')}}" alt="Kwishyura">
+    <span>
+      <span>KWISHYURA</span>
+      <small data-i18n="brand_sub">{{ t('brand_sub') }}</small>
+    </span>
+  </a>
+
+  <div class="header-controls">
+    <!-- Language switcher -->
+    <div class="lang-switcher" role="group" aria-label="{{ t('lang_label') }}" data-i18n-aria-label="lang_label">
+      <button class="lang-btn{% if lang=='rw' %} active{% endif %}" data-lang="rw" id="lang-rw">RW</button>
+      <button class="lang-btn{% if lang=='en' %} active{% endif %}" data-lang="en" id="lang-en">EN</button>
+      <button class="lang-btn{% if lang=='fr' %} active{% endif %}" data-lang="fr" id="lang-fr">FR</button>
+    </div>
+
+    <!-- Theme toggle -->
+    <button id="theme-toggle" aria-label="{{ t('theme_toggle') }}" title="{{ t('theme_toggle') }}" data-i18n-aria-label="theme_toggle" data-i18n-title="theme_toggle">
+      <span id="theme-icon">🌙</span>
+    </button>
+
+    <!-- Logged-in user -->
+    {% if session.uid %}
+    <div class="user">
+      <span>{{session.name}} &middot; {{ tv('role', session.role) }}</span>
+      <form method="post" action="/logout">
+        <input type="hidden" name="_csrf" value="{{csrf()}}">
+        <button class="secondary" data-i18n="logout">{{ t('logout') }}</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</header>
+
+<main>
+  {% for cat,msg in get_flashed_messages(with_categories=true) %}
+    {% set fkey, fparams, ftext = flash_parts(msg) %}
+    <div class="alert {{cat}}"{% if fkey %} data-i18n="{{fkey}}"{% if fparams %} data-i18n-params="{{ fparams|tojson|forceescape }}"{% endif %}{% endif %}>{{ftext}}</div>
+  {% endfor %}
+  {% block content %}{% endblock %}
+</main>
+
+<footer>
+  <span data-i18n="footer_text">{{ t('footer_text') }}</span>
+</footer>
+</body>
+</html>
